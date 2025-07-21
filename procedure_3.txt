@@ -1,0 +1,20 @@
+Procedure 3: TV Picture But No Audio Symptom: TV displays video correctly but produces no sound Context_Questions:
+	•	Audio output setting? [TV speakers/External/Auto/Unknown]
+	•	Mute status? [Muted/Unmuted/Volume at zero/Unknown]
+	•	All sources affected? [Yes/No/Only streaming/Only cable] Diagnostic_Flow:
+	1	VERIFY_AUDIO_BASICS:
+	◦	Check mute button and volume level
+	◦	Try different audio modes (Stereo/Surround)
+	◦	Test TV's built-in test tones if available
+	2	VERIFY_CONNECTIONS:
+	◦	HDMI cable supports audio return channel
+	◦	Audio cables properly connected if using separate audio
+	◦	Check source device audio output settings
+	3	TV_SETTINGS:
+	◦	Set audio output to internal speakers
+	◦	Disable audio enhancements/processing
+	◦	Reset audio settings to factory default
+	4	ISOLATION_TEST:
+	◦	Test different input sources
+	◦	Try headphone output if available
+	◦	Test external speakers/soundbar connection Success_Indicators: ["Audio clearly audible", "Volume controls responsive", "Audio synced with video"] Common_Resolutions: ["Mute/volume issue (40%)", "Audio output setting wrong (30%)", "HDMI audio handshake (15%)"]

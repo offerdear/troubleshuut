@@ -1,0 +1,20 @@
+Procedure 5: TV Shows Distorted/Poor Picture Quality Symptom: TV displays image with artifacts, pixelation, color issues, or poor clarity Context_Questions:
+	•	Distortion type? [Pixelated/Blurry/Color bands/Flickering/Lines]
+	•	Signal source? [Cable/Antenna/Streaming/HDMI device]
+	•	All channels/inputs affected? [Yes/No/Only specific channels] Diagnostic_Flow:
+	1	VERIFY_SIGNAL_QUALITY:
+	◦	Check cable connections for looseness
+	◦	Inspect cables for damage or kinks
+	◦	Try different HDMI/coax cable
+	2	VERIFY_SOURCE_SETTINGS:
+	◦	Match TV resolution to source output
+	◦	Check source device video quality settings
+	◦	Test with different resolution on source device
+	3	TV_PICTURE_SETTINGS:
+	◦	Reset picture settings to factory default
+	◦	Adjust sharpness, contrast, color settings
+	◦	Try different picture modes (Cinema/Sports/Game)
+	4	ISOLATION_TEST:
+	◦	Test multiple input sources
+	◦	Compare streaming vs broadcast quality
+	◦	Test same content on different TV if possible Success_Indicators: ["Clear, sharp picture", "Accurate colors", "No visible artifacts or distortion"] Common_Resolutions: ["Poor cable connection (35%)", "Incorrect resolution match (25%)", "Picture setting corruption (20%)"]

@@ -1,0 +1,20 @@
+Procedure 4: TV Remote Control Not Working Symptom: TV remote control buttons unresponsive or intermittently working Context_Questions:
+	•	Which functions affected? [All buttons/Power only/Specific buttons/Volume only]
+	•	Remote age/condition? [New/1-3 years/Old/Recently dropped]
+	•	Direct TV button test? [Works/Doesn't work/Not tested] Diagnostic_Flow:
+	1	VERIFY_REMOTE_POWER:
+	◦	Replace batteries with fresh ones
+	◦	Check battery compartment for corrosion
+	◦	Test IR signal with smartphone camera
+	2	VERIFY_LINE_OF_SIGHT:
+	◦	Remove obstacles between remote and TV
+	◦	Test from different angles/distances
+	◦	Clean remote IR transmitter lens
+	3	REMOTE_RESET:
+	◦	Remove batteries for 30 seconds
+	◦	Press all buttons to discharge capacitors
+	◦	Factory reset remote if option available
+	4	ISOLATION_TEST:
+	◦	Try TV manual controls
+	◦	Test remote with different TV if available
+	◦	Use smartphone remote app as backup Success_Indicators: ["All remote functions work", "Consistent response at normal distance", "IR signal visible on camera"] Common_Resolutions: ["Dead batteries (50%)", "Obstructed IR sensor (20%)", "Remote needs reset (15%)"]
