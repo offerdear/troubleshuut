@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Chatbot</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .chat-container {
+            background: #fff;
+            padding: 32px 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.08);
+            width: 350px;
+            display: flex;
+            flex-direction: column;
+            gap: 18px;
+        }
+        .input-box {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            font-size: 1em;
+            resize: none;
+        }
+        .submit-btn {
+            padding: 10px;
+            background: #007bff;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .submit-btn:hover {
+            background: #0056b3;
+        }
+        .response-box {
+            min-height: 60px;
+            background: #f0f0f0;
+            border-radius: 6px;
+            padding: 10px;
+            color: #222;
+            font-size: 1em;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <textarea id="userInput" class="input-box" rows="3" placeholder="Ask a question..."></textarea>
+        <button id="submitBtn" class="submit-btn">Submit</button>
+        <div id="responseBox" class="response-box">AI response will appear here.</div>
+    </div>
+    <script>
+        document.getElementById('submitBtn').onclick = function() {
+            const userInput = document.getElementById('userInput').value;
+            const responseBox = document.getElementById('responseBox');
+            if (userInput.trim() === "") {
+                responseBox.textContent = "Please enter a question.";
+                return;
+            }
+            // Placeholder for AI response logic
+            responseBox.textContent = "(AI response would appear here for: " + userInput + ")";
+        };
+    </script>
+</body>
+</html> 
