@@ -1,5 +1,6 @@
 import pandas as pd
-import chromadb
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from openai import OpenAI
 import os
 from dotenv import load_dotenv
@@ -8,29 +9,35 @@ import uuid
 import json
 from datetime import datetime
 import re
+import sys
+from PyPDF2 import PdfReader
 
 # Load environment variables
 load_dotenv()
 
 class AgenticRAG:
-    def __init__(self, persist_directory: str = "./chroma_db"):
-        """Initialize the Agentic RAG system with ChromaDB"""
+    def __init__(self, persist_directory: str = "./qdrant_db"):
+        """Initialize the Agentic RAG system with Qdrant"""
         
         # Get OpenAI API key from environment
         openai_api_key = os.getenv("OPENAI_API_KEY")
+        qdrant_url = os.getenv("QDRANT_URL")
+        qdrant_api_key = os.getenv("QDRANT_API_KEY")
         
         if not openai_api_key:
             raise ValueError("Missing OPENAI_API_KEY environment variable. Check your .env file.")
+        if not qdrant_url or not qdrant_api_key:
+            raise ValueError("Missing QDRANT_URL or QDRANT_API_KEY in environment variables.")
         
         # Initialize OpenAI client
         self.openai_client = OpenAI(api_key=openai_api_key)
         
-        # Initialize ChromaDB client with persistence
-        self.chroma_client = chromadb.PersistentClient(path=persist_directory)
+        # Initialize Qdrant client
+        self.qdrant_client = QdrantClient(url=qdrant_url, api_key=qdrant_api_key)
         
         # Collections
-        self.knowledge_collection = None
-        self.context_collection = None
+        self.knowledge_collection = "knowledge"
+        self.context_collection = "context"
         
         # Conversation state
         self.conversation_history: List[Dict] = []
@@ -39,10 +46,24 @@ class AgenticRAG:
         
         print("✅ Agentic RAG System initialized successfully!")
         print(f"✅ Session ID: {self.current_session_id}")
-        print(f"✅ ChromaDB will persist data to: {persist_directory}")
+        print(f"✅ Qdrant cloud URL: {qdrant_url}")
         
+        self._ensure_collections_exist()
+
+    def _ensure_collections_exist(self):
+        # Create collections if they don't exist
+        for collection_name in [self.knowledge_collection, self.context_collection]:
+            if not self.qdrant_client.collection_exists(collection_name):
+                self.qdrant_client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+                )
+                print(f"✅ Created Qdrant collection: {collection_name}")
+            else:
+                print(f"✅ Qdrant collection exists: {collection_name}")
+
     def test_connections(self):
-        """Test OpenAI and ChromaDB connections"""
+        """Test OpenAI and Qdrant connections"""
         try:
             # Test OpenAI
             response = self.openai_client.embeddings.create(
@@ -50,52 +71,23 @@ class AgenticRAG:
                 input=["test"]
             )
             print("✅ OpenAI connection successful!")
-            
-            # Test ChromaDB
-            self.chroma_client.heartbeat()
-            print("✅ ChromaDB connection successful!")
-            
+            # Test Qdrant
+            self.qdrant_client.get_collections()
+            print("✅ Qdrant connection successful!")
             return True
         except Exception as e:
             print(f"❌ Connection error: {e}")
             return False
-    
-    def setup_collections(self):
-        """Create or get ChromaDB collections"""
-        
-        # Knowledge collection for documents/procedures
-        try:
-            self.knowledge_collection = self.chroma_client.get_collection("knowledge")
-            print("✅ Loaded existing knowledge collection")
-        except:
-            self.knowledge_collection = self.chroma_client.create_collection(
-                name="knowledge",
-                metadata={"hnsw:space": "cosine"}
-            )
-            print("✅ Created new knowledge collection")
-        
-        # Context collection for conversation history
-        try:
-            self.context_collection = self.chroma_client.get_collection("context")
-            print("✅ Loaded existing context collection")
-        except:
-            self.context_collection = self.chroma_client.create_collection(
-                name="context",
-                metadata={"hnsw:space": "cosine"}
-            )
-            print("✅ Created new context collection")
-    
+
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """Get embeddings for a list of texts using OpenAI"""
         response = self.openai_client.embeddings.create(
             model="text-embedding-3-small",
             input=texts
         )
         return [embedding.embedding for embedding in response.data]
-    
+
     def ingest_diagnostic_procedure(self, procedure_text: str, procedure_name: str = None):
         """Parse and ingest a diagnostic procedure into the knowledge base"""
-        
         if not procedure_name:
             procedure_name = "diagnostic_procedure_" + str(uuid.uuid4())[:8]
         
@@ -147,7 +139,7 @@ class AgenticRAG:
         
         # Ingest chunks
         documents = []
-        metadatas = []
+        payloads = []
         ids = []
         
         for chunk in chunks:
@@ -161,18 +153,14 @@ class AgenticRAG:
             }
             metadata.update({k: v for k, v in chunk.items() if k not in ['content', 'type']})
             
-            metadatas.append(metadata)
+            payloads.append(metadata)
             ids.append(doc_id)
         
         # Get embeddings and add to collection
         embeddings = self.get_embeddings(documents)
         
-        self.knowledge_collection.add(
-            documents=documents,
-            metadatas=metadatas,
-            ids=ids,
-            embeddings=embeddings
-        )
+        points = [PointStruct(id=ids[i], vector=embeddings[i], payload=payloads[i]) for i in range(len(ids))]
+        self.qdrant_client.upsert(collection_name=self.knowledge_collection, points=points)
         
         print(f"✅ Ingested procedure '{procedure_name}' with {len(chunks)} chunks")
         
@@ -242,65 +230,52 @@ class AgenticRAG:
         # Create searchable context content
         context_content = f"User: {user_input}\nAssistant: {response}"
         
-        # Save to ChromaDB for future retrieval
+        # Save to Qdrant for future retrieval
         doc_id = str(uuid.uuid4())
         embedding = self.get_embeddings([context_content])[0]
         
-        self.context_collection.add(
-            documents=[context_content],
-            metadatas=[context_entry],
-            ids=[doc_id],
-            embeddings=[embedding]
-        )
+        point = PointStruct(id=doc_id, vector=embedding, payload=context_entry)
+        self.qdrant_client.upsert(collection_name=self.context_collection, points=[point])
     
     def get_relevant_context(self, query: str, limit: int = 3) -> List[Dict]:
         """Retrieve relevant conversation context"""
         
-        if self.context_collection.count() == 0:
-            return []
-        
         query_embedding = self.get_embeddings([query])[0]
         
-        results = self.context_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            where={"session_id": self.current_session_id},
-            include=["documents", "metadatas", "distances"]
+        search_result = self.qdrant_client.search(
+            collection_name=self.context_collection,
+            query_vector=query_embedding,
+            limit=limit
         )
-        
         contexts = []
-        if results["documents"] and results["documents"][0]:
-            for i, doc in enumerate(results["documents"][0]):
+        for hit in search_result:
+            # Filter by session_id in Python
+            if hit.payload.get("session_id") == self.current_session_id:
                 contexts.append({
-                    "content": doc,
-                    "metadata": results["metadatas"][0][i],
-                    "relevance": 1 - results["distances"][0][i]
+                    "content": hit.payload.get("user_input", "") + "\n" + hit.payload.get("response", ""),
+                    "metadata": hit.payload,
+                    "relevance": hit.score
                 })
-        
         return contexts
     
     def search_knowledge_base(self, query: str, limit: int = 5) -> List[Dict]:
         """Search the knowledge base for relevant information"""
         
-        if self.knowledge_collection.count() == 0:
-            return []
-        
         query_embedding = self.get_embeddings([query])[0]
         
-        results = self.knowledge_collection.query(
-            query_embeddings=[query_embedding],
-            n_results=limit,
-            include=["documents", "metadatas", "distances"]
+        search_result = self.qdrant_client.search(
+            collection_name=self.knowledge_collection,
+            query_vector=query_embedding,
+            limit=limit
         )
         
         knowledge = []
-        if results["documents"] and results["documents"][0]:
-            for i, doc in enumerate(results["documents"][0]):
-                knowledge.append({
-                    "content": doc,
-                    "metadata": results["metadatas"][0][i],
-                    "relevance": 1 - results["distances"][0][i]
-                })
+        for hit in search_result:
+            knowledge.append({
+                "content": hit.payload.get("content", ""),
+                "metadata": hit.payload,
+                "relevance": hit.score
+            })
         
         return knowledge
     
@@ -423,8 +398,8 @@ ACTIVE DIAGNOSTIC CONTEXT:
     
     def get_system_status(self):
         """Get current system status"""
-        knowledge_count = self.knowledge_collection.count() if self.knowledge_collection else 0
-        context_count = self.context_collection.count() if self.context_collection else 0
+        knowledge_count = self.qdrant_client.count(self.knowledge_collection) if self.qdrant_client else 0
+        context_count = self.qdrant_client.count(self.context_collection) if self.qdrant_client else 0
         
         print(f"📊 System Status:")
         print(f"  Knowledge items: {knowledge_count}")
@@ -432,34 +407,64 @@ ACTIVE DIAGNOSTIC CONTEXT:
         print(f"  Current session: {self.current_session_id}")
         print(f"  Conversation turns: {len(self.conversation_history)}")
 
+    def ingest_text_chunks(self, chunks: list, source: str = "pdf"):
+        """Ingest a list of text chunks into the knowledge base (Qdrant collection)."""
+        documents = []
+        payloads = []
+        ids = []
+        for i, chunk in enumerate(chunks):
+            doc_id = str(uuid.uuid4())
+            documents.append(chunk)
+            metadata = {
+                'type': 'text_chunk',
+                'source': source,
+                'chunk_index': i,
+                'timestamp': datetime.now().isoformat()
+            }
+            payloads.append(metadata)
+            ids.append(doc_id)
+        embeddings = self.get_embeddings(documents)
+        points = [PointStruct(id=ids[i], vector=embeddings[i], payload=payloads[i]) for i in range(len(ids))]
+        self.qdrant_client.upsert(collection_name=self.knowledge_collection, points=points)
+        print(f"✅ Ingested {len(chunks)} text chunks into the knowledge base from {source}.")
+
+def extract_text_from_pdf(pdf_path):
+    reader = PdfReader(pdf_path)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() + "\n"
+    return text
+
+def split_text(text, chunk_size=1000, overlap=200):
+    chunks = []
+    start = 0
+    while start < len(text):
+        end = min(start + chunk_size, len(text))
+        chunks.append(text[start:end])
+        start += chunk_size - overlap
+    return chunks
+
 def main():
     rag = None
     try:
+        # PDF ingestion mode
+        if len(sys.argv) == 3 and sys.argv[1] == "ingest_pdf":
+            pdf_path = sys.argv[2]
+            print(f"Extracting text from {pdf_path}...")
+            text = extract_text_from_pdf(pdf_path)
+            print(f"Extracted {len(text)} characters. Splitting into chunks...")
+            chunks = split_text(text)
+            print(f"Split into {len(chunks)} chunks. Ingesting into Qdrant...")
+            rag = AgenticRAG()
+            rag.ingest_text_chunks(chunks, source=pdf_path)
+            print("Done.")
+            return
         # Initialize the Agentic RAG system
         rag = AgenticRAG()
         
         # Test connections
         if not rag.test_connections():
             return
-        
-        # Setup collections
-        rag.setup_collections()
-        
-        # Check if user wants to add a diagnostic procedure
-        add_procedure = input("Do you want to add a diagnostic procedure? (y/n): ").lower() == 'y'
-        
-        if add_procedure:
-            procedure_input = input("Enter the diagnostic procedure text (or file path): ")
-            
-            # Check if it's a file path
-            if os.path.exists(procedure_input):
-                with open(procedure_input, 'r') as f:
-                    procedure_text = f.read()
-            else:
-                procedure_text = procedure_input
-            
-            procedure_name = input("Enter a name for this procedure (optional): ") or None
-            rag.ingest_diagnostic_procedure(procedure_text, procedure_name)
         
         # Show system status
         rag.get_system_status()
