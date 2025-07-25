@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>RAG Chatbot</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 p-4">
+    <div class="max-w-2xl mx-auto">
+        <div class="bg-white rounded-lg shadow-lg p-4">
+            <div id="chat-messages" class="h-96 overflow-y-auto mb-4 p-2 space-y-2">
+                <div class="text-center text-gray-500">Select a device and start chatting...</div>
+            </div>
+            
+            <div class="flex space-x-2 mb-4">
+                <select id="device-type" class="border rounded p-2">
+                    <option value="phone">Phone</option>
+                    <option value="tablet">Tablet</option>
+                    <option value="computer">Computer</option>
+                </select>
+                <select id="device-subtype" class="border rounded p-2">
+                    <option value="iphone">iPhone</option>
+                    <option value="samsung">Samsung</option>
+                </select>
+            </div>
+            
+            <div class="flex space-x-2">
+                <input type="text" id="user-input" 
+                       class="flex-1 border rounded p-2" 
+                       placeholder="Type your message...">
+                <button onclick="sendMessage()" 
+                        class="bg-blue-500 text-white px-4 rounded">
+                    Send
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const deviceType = document.getElementById('device-type');
+        const deviceSubtype = document.getElementById('device-subtype');
+        
+        deviceType.addEventListener('change', () => {
+            const type = deviceType.value;
+            
+            if (type === 'phone') {
+                deviceSubtype.innerHTML = `
+                    <option value="iphone">iPhone</option>
+                    <option value="samsung">Samsung</option>
+                `;
+            } else if (type === 'tablet') {
+                deviceSubtype.innerHTML = `
+                    <option value="ipad">iPad</option>
+                    <option value="samsung">Samsung Tablet</option>
+                    <option value="android">Android Tablet</option>
+                `;
+            } else if (type === 'computer') {
+                deviceSubtype.innerHTML = `
+                    <option value="macbook_pro">MacBook Pro</option>
+                    <option value="windows">Windows</option>
+                `;
+            }
+        });
+
+        async function sendMessage() {
+            const message = document.getElementById('user-input').value.trim();
+            if (!message) return;
+
+            // Add user message
+            addMessage('You', message);
+            document.getElementById('user-input').value = '';
+
+            // Get response
+            try {
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        message: message,
+                        device_type: deviceType.value,
+                        device_subtype: deviceSubtype.value
+                    })
+                });
+                const data = await response.json();
+                addMessage('Assistant', data.response);
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage('Error', 'Failed to get response');
+            }
+        }
+
+        function addMessage(sender, message) {
+            const chat = document.getElementById('chat-messages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `p-2 rounded ${sender === 'You' ? 'bg-blue-100 ml-8' : 'bg-gray-100 mr-8'}`;
+            messageDiv.innerHTML = `<strong>${sender}:</strong> ${message}`;
+            chat.appendChild(messageDiv);
+            chat.scrollTop = chat.scrollHeight;
+        }
+
+        // Allow Enter key to send message
+        document.getElementById('user-input').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMessage();
+        });
+    </script>
+</body>
+</html>

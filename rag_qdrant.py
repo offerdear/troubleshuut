@@ -43,8 +43,9 @@ class AgenticRAG:
         self.conversation_history: List[Dict] = []
         self.current_session_id = str(uuid.uuid4())
         self.active_procedures: Dict[str, Dict] = {}
-        self.device_type: Optional[str] = None  # 'phone' or 'computer'
+        self.device_type: Optional[str] = None  # 'phone', 'tablet', or 'computer'
         self.phone_type: Optional[str] = None   # 'iphone' or 'samsung' or None
+        self.computer_type: Optional[str] = None  # 'macbook_pro' or 'windows' or None
         
         print("✅ Agentic RAG System initialized successfully!")
         print(f"✅ Session ID: {self.current_session_id}")
@@ -87,7 +88,13 @@ class AgenticRAG:
                         field_name="phone_type",
                         field_schema="keyword"
                     )
-                    print("✅ Created indexes for device_type and phone_type")
+                    # Create index for computer_type
+                    self.qdrant_client.create_payload_index(
+                        collection_name=collection_name,
+                        field_name="computer_type",
+                        field_schema="keyword"
+                    )
+                    print("✅ Created indexes for device_type, phone_type, and computer_type")
             else:
                 print(f"✅ Using existing collection: {collection_name}")
 
@@ -120,7 +127,7 @@ class AgenticRAG:
             if collection_name == self.knowledge_collection:
                 schema = info.get('payload_schema', {})
                 print("  🔍 Checking indexes:")
-                for field in ['device_type', 'phone_type']:
+                for field in ['device_type', 'phone_type', 'computer_type']:
                     if field in schema:
                         print(f"    ✅ {field} index exists")
                     else:
@@ -347,6 +354,24 @@ class AgenticRAG:
                         )
                     )
                 )
+            elif self.device_type == 'tablet' and self.phone_type:
+                filter_conditions.append(
+                    FieldCondition(
+                        key="phone_type",
+                        match=MatchValue(
+                            value=self.phone_type
+                        )
+                    )
+                )
+            elif self.device_type == 'computer' and self.computer_type:
+                filter_conditions.append(
+                    FieldCondition(
+                        key="computer_type",
+                        match=MatchValue(
+                            value=self.computer_type
+                        )
+                    )
+                )
             filter = Filter(
                 must=filter_conditions
             )
@@ -441,8 +466,14 @@ class AgenticRAG:
         device_context = ""
         if self.device_type:
             device_context = f"\n\nDEVICE CONTEXT:\n- Device Type: {self.device_type.capitalize()}"
-            if self.phone_type:
+            if self.device_type == 'phone' and self.phone_type:
                 device_context += f"\n- Phone Type: {self.phone_type.capitalize()}"
+            elif self.device_type == 'tablet' and self.phone_type:
+                device_context += f"\n- Tablet Type: {self.phone_type.capitalize()}"
+            elif self.device_type == 'computer' and self.computer_type:
+                device_context += f"\n- Computer Type: {self.computer_type.capitalize()}"
+            elif self.device_type == 'computer' and not self.computer_type:
+                device_context += f"\n- Computer Type: Unknown"
         
         base_prompt = f"""You are an intelligent diagnostic assistant with agentic capabilities. Your role is to:
 
@@ -519,23 +550,39 @@ ACTIVE DIAGNOSTIC CONTEXT:
         """Ingest text chunks into the knowledge base with proper metadata"""
         print(f"📥 Ingesting {len(chunks)} chunks from {source}...")
         
-        # Extract device type and phone type from source filename if possible
+        # Extract device type and subtype from source filename if possible
         device_type = None
         phone_type = None
+        computer_type = None
         
         if 'iphone' in source.lower():
             device_type = 'phone'
             phone_type = 'iphone'
         elif 'samsung' in source.lower() or 'android' in source.lower():
-            device_type = 'phone'
-            phone_type = 'samsung'
-        elif 'computer' in source.lower() or 'pc' in source.lower() or 'mac' in source.lower():
+            if 'tablet' in source.lower():
+                device_type = 'tablet'
+                phone_type = 'samsung' if 'samsung' in source.lower() else 'android'
+            else:
+                device_type = 'phone'
+                phone_type = 'samsung'
+        elif 'ipad' in source.lower():
+            device_type = 'tablet'
+            phone_type = 'ipad'
+        elif 'tablet' in source.lower():
+            device_type = 'tablet'
+            phone_type = 'android'
+        elif 'computer' in source.lower() or 'pc' in source.lower() or 'mac' in source.lower() or 'windows' in source.lower():
             device_type = 'computer'
+            if 'mac' in source.lower() or 'macbook' in source.lower():
+                computer_type = 'macbook_pro'
+            else:
+                computer_type = 'windows'
         
-        # If device type couldn't be determined from filename, use the instance's device type
+        # If device type couldn't be determined from filename, use the instance's values
         if not device_type:
             device_type = self.device_type
             phone_type = self.phone_type
+            computer_type = getattr(self, 'computer_type', None)
         
         documents = []
         payloads = []
@@ -551,40 +598,70 @@ ACTIVE DIAGNOSTIC CONTEXT:
                 'chunk_index': i,
                 'timestamp': datetime.now().isoformat(),
                 'device_type': device_type,
-                'phone_type': phone_type
+                'phone_type': phone_type if device_type in ['phone', 'tablet'] else None,
+                'computer_type': computer_type if device_type == 'computer' else None
             }
             
             payloads.append(metadata)
             ids.append(doc_id)
         
+        # Get embeddings for all chunks at once
         embeddings = self.get_embeddings(documents)
         
-        points = [PointStruct(id=ids[i], vector=embeddings[i], payload=payloads[i]) for i in range(len(ids))]
-        self.qdrant_client.upsert(collection_name=self.knowledge_collection, points=points)
+        # Create points for Qdrant
+        points = [
+            PointStruct(
+                id=ids[i],
+                vector=embeddings[i],
+                payload=payloads[i]
+            ) for i in range(len(ids))
+        ]
+        
+        # Upsert to Qdrant
+        self.qdrant_client.upsert(
+            collection_name=self.knowledge_collection,
+            points=points
+        )
         
         print(f"✅ Ingested {len(chunks)} text chunks into the knowledge base from {source}.")
 
 def get_valid_device_type() -> Tuple[str, Optional[str]]:
-    """Prompt user to select a device type and phone type if applicable."""
+    """Prompt user to select a device type and subtype."""
     while True:
-        device_type = input("\n🔧 What kind of device are you using? (Phone/Computer): ").strip().lower()
+        device_type = input("\n🔧 What kind of device are you using? (Phone/Tablet/Computer): ").strip().lower()
+        
         if device_type == 'phone':
             while True:
                 phone_type = input("📱 What is your phone type? (iPhone/Samsung): ").strip().lower()
                 if phone_type in ['iphone', 'samsung']:
-                    # Show confirmation message
                     print(f"\n🤖 Assistant: Got it! You're using a {phone_type.capitalize()}. "
                           f"I'll use the {phone_type.capitalize()} Phone User Guide to help you. "
                           f"What seems to be the problem with your {phone_type.capitalize()}?")
                     return 'phone', phone_type
                 print("Please enter either 'iPhone' or 'Samsung'.")
+                
+        elif device_type == 'tablet':
+            while True:
+                tablet_type = input("📱 What is your tablet type? (iPad/Samsung/Android): ").strip().lower()
+                if tablet_type in ['ipad', 'samsung', 'android']:
+                    print(f"\n🤖 Assistant: Got it! You're using a {tablet_type.capitalize()}. "
+                          f"I'll use the {tablet_type.capitalize()} Tablet User Guide to help you. "
+                          f"What seems to be the problem with your {tablet_type.capitalize()}?")
+                    return 'tablet', tablet_type
+                print("Please enter either 'iPad', 'Samsung', or 'Android'.")
+                
         elif device_type == 'computer':
-            print("\n🤖 Assistant: Got it! You're using a computer. "
-                  "I'll use the Computer User Guide to help you. "
-                  "What seems to be the problem with your computer?")
-            return 'computer', None
+            while True:
+                computer_type = input("💻 What is your computer type? (MacBook Pro/Windows): ").strip().lower()
+                if computer_type in ['macbook pro', 'windows']:
+                    computer_display = "MacBook Pro" if computer_type == 'macbook pro' else "Windows"
+                    print(f"\n🤖 Assistant: Got it! You're using a {computer_display}. "
+                          f"I'll use the {computer_display} User Guide to help you. "
+                          f"What seems to be the problem with your {computer_display}?")
+                    return 'computer', computer_type.replace(' ', '_')
+                print("Please enter either 'MacBook Pro' or 'Windows'.")
         else:
-            print("Please enter either 'Phone' or 'Computer'.")
+            print("Please enter either 'Phone', 'Tablet', or 'Computer'.")
 
 def extract_text_from_pdf(pdf_path):
     reader = PdfReader(pdf_path)
@@ -650,6 +727,10 @@ def main():
         print(f"Device type: {rag.device_type.capitalize()}")
         if rag.device_type == 'phone' and rag.phone_type:
             print(f"Phone type: {rag.phone_type.capitalize()}")
+        elif rag.device_type == 'tablet' and rag.phone_type:
+            print(f"Tablet type: {rag.phone_type.capitalize()}")
+        elif rag.device_type == 'computer' and rag.phone_type:
+            print(f"Computer type: {rag.phone_type.capitalize()}")
         print("This system maintains conversation context and provides guided diagnostics.")
         print("Type 'quit' to exit, 'status' for system info, 'device' to change device type.\n")
         
@@ -667,6 +748,10 @@ def main():
                 print(f"Device type changed to: {rag.device_type.capitalize()}")
                 if rag.device_type == 'phone' and rag.phone_type:
                     print(f"Phone type changed to: {rag.phone_type.capitalize()}")
+                elif rag.device_type == 'tablet' and rag.phone_type:
+                    print(f"Tablet type changed to: {rag.phone_type.capitalize()}")
+                elif rag.device_type == 'computer' and rag.phone_type:
+                    print(f"Computer type changed to: {rag.phone_type.capitalize()}")
                 continue
             
             response = rag.generate_agentic_response(user_input)
