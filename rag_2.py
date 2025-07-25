@@ -11,6 +11,7 @@ from datetime import datetime
 import re
 import sys
 from PyPDF2 import PdfReader
+import difflib
 
 # Load environment variables
 load_dotenv()
@@ -43,6 +44,7 @@ class AgenticRAG:
         self.conversation_history: List[Dict] = []
         self.current_session_id = str(uuid.uuid4())
         self.active_procedures: Dict[str, Dict] = {}
+        self.selected_device = None  # Store the selected device
         
         print("✅ Agentic RAG System initialized successfully!")
         print(f"✅ Session ID: {self.current_session_id}")
@@ -266,16 +268,19 @@ class AgenticRAG:
         search_result = self.qdrant_client.search(
             collection_name=self.knowledge_collection,
             query_vector=query_embedding,
-            limit=limit
+            limit=limit * 3  # fetch more to allow for device filtering
         )
         
         knowledge = []
         for hit in search_result:
-            knowledge.append({
-                "content": hit.payload.get("content", ""),
-                "metadata": hit.payload,
-                "relevance": hit.score
-            })
+            if self.selected_device is None or hit.payload.get("device") == self.selected_device:
+                knowledge.append({
+                    "content": hit.payload.get("content", ""),
+                    "metadata": hit.payload,
+                    "relevance": hit.score
+                })
+                if len(knowledge) >= limit:
+                    break
         
         return knowledge
     
@@ -428,6 +433,32 @@ ACTIVE DIAGNOSTIC CONTEXT:
         self.qdrant_client.upsert(collection_name=self.knowledge_collection, points=points)
         print(f"✅ Ingested {len(chunks)} text chunks into the knowledge base from {source}.")
 
+    def list_available_devices(self):
+        all_devices = set()
+        search_result = self.qdrant_client.scroll(collection_name=self.knowledge_collection, limit=1000)[0]
+        for point in search_result:
+            device = point.payload.get("device")
+            if device:
+                all_devices.add(device)
+        return sorted(all_devices)
+
+    def fuzzy_match_device(self, user_input: str, threshold: float = 0.2):
+        available_devices = self.list_available_devices()
+        if not available_devices:
+            return None, 0.0
+        best_match = difflib.get_close_matches(user_input, available_devices, n=1, cutoff=threshold)
+        if best_match:
+            return best_match[0], difflib.SequenceMatcher(None, user_input, best_match[0]).ratio()
+        scores = [(device, difflib.SequenceMatcher(None, user_input, device).ratio()) for device in available_devices]
+        scores.sort(key=lambda x: x[1], reverse=True)
+        if scores and scores[0][1] > 0.1:
+            return scores[0][0], scores[0][1]
+        return None, 0.0
+
+    def set_device(self, device_name: str):
+        self.selected_device = device_name
+        print(f"🔧 Device set to: {device_name}")
+
 def extract_text_from_pdf(pdf_path):
     reader = PdfReader(pdf_path)
     text = ""
@@ -450,17 +481,56 @@ def main():
         # PDF ingestion mode
         if len(sys.argv) == 3 and sys.argv[1] == "ingest_pdf":
             pdf_path = sys.argv[2]
+            device_name = input("Enter the device name for this manual (e.g., 'iPad', 'iPhone 15', 'MacBook Pro'): ").strip()
             print(f"Extracting text from {pdf_path}...")
             text = extract_text_from_pdf(pdf_path)
             print(f"Extracted {len(text)} characters. Splitting into chunks...")
             chunks = split_text(text)
-            print(f"Split into {len(chunks)} chunks. Ingesting into Qdrant...")
+            print(f"Split into {len(chunks)} chunks. Ingesting into Qdrant with device metadata '{device_name}'...")
             rag = AgenticRAG()
-            rag.ingest_text_chunks(chunks, source=pdf_path)
+            # Ingest with device metadata
+            def add_device_metadata(chunk):
+                return {"content": chunk, "device": device_name}
+            # Overwrite ingest_text_chunks to add device metadata
+            documents = chunks
+            payloads = [
+                {
+                    'type': 'text_chunk',
+                    'source': pdf_path,
+                    'device': device_name,
+                    'chunk_index': i,
+                    'timestamp': datetime.now().isoformat()
+                }
+                for i, chunk in enumerate(chunks)
+            ]
+            ids = [str(uuid.uuid4()) for _ in chunks]
+            embeddings = rag.get_embeddings(documents)
+            points = [PointStruct(id=ids[i], vector=embeddings[i], payload=payloads[i]) for i in range(len(ids))]
+            rag.qdrant_client.upsert(collection_name=rag.knowledge_collection, points=points)
+            print(f"✅ Ingested {len(chunks)} text chunks into the knowledge base from {pdf_path} with device '{device_name}'.")
             print("Done.")
             return
         # Initialize the Agentic RAG system
         rag = AgenticRAG()
+        # Debug: print all available device names
+        print("DEBUG: Available device names in Qdrant:")
+        for dev in rag.list_available_devices():
+            print(f"- {dev}")
+        # Ask user for device selection with fuzzy matching
+        while True:
+            device_input = input("Which device are you using? (type any device name, e.g., 'iPhone 15', 'MacBook Pro', 'iPad Mini'): ").strip()
+            matched_device, confidence = rag.fuzzy_match_device(device_input)
+            if matched_device and confidence >= 0.7:
+                rag.set_device(matched_device)
+                break
+            elif matched_device and confidence >= 0.5:
+                print(f"We found a similar manual: '{matched_device}'.")
+                confirm = input("Type 'yes' to use this manual, or try another device: ").strip().lower()
+                if confirm == 'yes':
+                    rag.set_device(matched_device)
+                    break
+            else:
+                print("Sorry, we don't have a manual that matches your device. Please try another device name or upload a PDF.")
         
         # Test connections
         if not rag.test_connections():
