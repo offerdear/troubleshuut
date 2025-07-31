@@ -14,8 +14,8 @@ import re
 load_dotenv()
 
 class AgenticRAG:
-    def __init__(self, persist_directory: str = "./qdrant_db"):
-        """Initialize the Agentic RAG system with Qdrant"""
+    def __init__(self, persist_directory: str = "./qdrant_db", products_csv_path: str = "products.csv"):
+        """Initialize the Agentic RAG system with Qdrant and dynamic product categories"""
         
         # Get OpenAI API key from environment
         openai_api_key = os.getenv("OPENAI_API_KEY")
@@ -37,26 +37,90 @@ class AgenticRAG:
         self.knowledge_collection = "knowledge"
         self.context_collection = "context"
         
+        # Load and process products data
+        self.products_csv_path = products_csv_path
+        self.products_df = None
+        self.categories = {}
+        self.brands_by_category = {}
+        self.load_products_data()
+        
         # Conversation state
         self.conversation_history: List[Dict] = []
         self.current_session_id = str(uuid.uuid4())
         self.active_procedures: Dict[str, Dict] = {}
-        self.device_type: Optional[str] = None  # 'phone', 'tablet', or 'computer'
-        self.phone_type: Optional[str] = None   # 'iphone' or 'samsung' or None
-        self.computer_type: Optional[str] = None  # 'macbook_pro' or 'windows' or None
+        
+        # Dynamic device attributes
+        self.selected_category: Optional[str] = None
+        self.selected_brand: Optional[str] = None
+        self.selected_product: Optional[str] = None
         
         print("✅ Agentic RAG System initialized successfully!")
         print(f"✅ Session ID: {self.current_session_id}")
         print(f"✅ Qdrant cloud URL: {qdrant_url}")
+        print(f"✅ Loaded {len(self.categories)} product categories")
         
         self._ensure_collections_exist()
 
-    def _ensure_collections_exist(self, recreate: bool = False):
-        """Ensure collections exist with proper indexes.
+    def load_products_data(self):
+        """Load products data from CSV and extract categories and brands"""
+        try:
+            self.products_df = pd.read_csv(self.products_csv_path)
+            print(f"✅ Loaded {len(self.products_df)} products from CSV")
+            
+            # Extract categories and their associated brands
+            self.categories = {}
+            self.brands_by_category = {}
+            
+            for _, row in self.products_df.iterrows():
+                category = row['Category']
+                brand = row['Brand']
+                product_name = row['Product_Name']
+                
+                if category not in self.categories:
+                    self.categories[category] = []
+                    self.brands_by_category[category] = set()
+                
+                self.categories[category].append({
+                    'name': product_name,
+                    'brand': brand,
+                    'product_id': row['Product_ID']
+                })
+                self.brands_by_category[category].add(brand)
+            
+            # Convert sets to sorted lists for consistency
+            for category in self.brands_by_category:
+                self.brands_by_category[category] = sorted(list(self.brands_by_category[category]))
+                
+            print(f"✅ Extracted categories: {list(self.categories.keys())}")
+            
+        except Exception as e:
+            print(f"❌ Error loading products data: {e}")
+            # Initialize empty data structures if CSV fails to load
+            self.products_df = pd.DataFrame()
+            self.categories = {}
+            self.brands_by_category = {}
+
+    def get_categories(self) -> List[str]:
+        """Get all available product categories"""
+        return list(self.categories.keys())
+
+    def get_brands_for_category(self, category: str) -> List[str]:
+        """Get all brands available for a specific category"""
+        return self.brands_by_category.get(category, [])
+
+    def get_products_for_category_brand(self, category: str, brand: str = None) -> List[Dict]:
+        """Get all products for a specific category and optionally brand"""
+        if category not in self.categories:
+            return []
         
-        Args:
-            recreate: If True, will delete and recreate the collections.
-        """
+        products = self.categories[category]
+        if brand:
+            products = [p for p in products if p['brand'] == brand]
+        
+        return products
+
+    def _ensure_collections_exist(self, recreate: bool = False):
+        """Ensure collections exist with proper indexes for dynamic fields"""
         for collection_name in [self.knowledge_collection, self.context_collection]:
             # Delete existing collection if recreate is True
             if recreate and self.qdrant_client.collection_exists(collection_name):
@@ -71,28 +135,28 @@ class AgenticRAG:
                     vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
                 )
                 
-                # Create indexes for knowledge collection
+                # Create dynamic indexes for knowledge collection
                 if collection_name == self.knowledge_collection:
                     print("🛠️  Creating indexes for knowledge collection...")
-                    # Create index for device_type
+                    # Create index for category
                     self.qdrant_client.create_payload_index(
                         collection_name=collection_name,
-                        field_name="device_type",
+                        field_name="category",
                         field_schema="keyword"
                     )
-                    # Create index for phone_type
+                    # Create index for brand
                     self.qdrant_client.create_payload_index(
                         collection_name=collection_name,
-                        field_name="phone_type",
+                        field_name="brand",
                         field_schema="keyword"
                     )
-                    # Create index for computer_type
+                    # Create index for product_id
                     self.qdrant_client.create_payload_index(
                         collection_name=collection_name,
-                        field_name="computer_type",
+                        field_name="product_id",
                         field_schema="keyword"
                     )
-                    print("✅ Created indexes for device_type, phone_type, and computer_type")
+                    print("✅ Created indexes for category, brand, and product_id")
             else:
                 print(f"✅ Using existing collection: {collection_name}")
 
@@ -125,7 +189,7 @@ class AgenticRAG:
             if collection_name == self.knowledge_collection:
                 schema = info.get('payload_schema', {})
                 print("  🔍 Checking indexes:")
-                for field in ['device_type', 'phone_type', 'computer_type']:
+                for field in ['category', 'brand', 'product_id']:
                     if field in schema:
                         print(f"    ✅ {field} index exists")
                     else:
@@ -204,50 +268,42 @@ class AgenticRAG:
         return contexts
     
     def search_knowledge_base(self, query: str, limit: int = 5) -> List[Dict]:
-        """Search the knowledge base for relevant information"""
+        """Search the knowledge base for relevant information with dynamic filtering"""
         
         query_embedding = self.get_embeddings([query])[0]
         
         filter = None
-        if self.device_type:
-            filter_conditions = [
+        filter_conditions = []
+        
+        # Add category filter if selected
+        if self.selected_category:
+            filter_conditions.append(
                 FieldCondition(
-                    key="device_type",
-                    match=MatchValue(
-                        value=self.device_type
-                    )
+                    key="category",
+                    match=MatchValue(value=self.selected_category)
                 )
-            ]
-            if self.device_type == 'phone' and self.phone_type:
-                filter_conditions.append(
-                    FieldCondition(
-                        key="phone_type",
-                        match=MatchValue(
-                            value=self.phone_type
-                        )
-                    )
-                )
-            elif self.device_type == 'tablet' and self.phone_type:
-                filter_conditions.append(
-                    FieldCondition(
-                        key="phone_type",
-                        match=MatchValue(
-                            value=self.phone_type
-                        )
-                    )
-                )
-            elif self.device_type == 'computer' and self.computer_type:
-                filter_conditions.append(
-                    FieldCondition(
-                        key="computer_type",
-                        match=MatchValue(
-                            value=self.computer_type
-                        )
-                    )
-                )
-            filter = Filter(
-                must=filter_conditions
             )
+        
+        # Add brand filter if selected
+        if self.selected_brand:
+            filter_conditions.append(
+                FieldCondition(
+                    key="brand",
+                    match=MatchValue(value=self.selected_brand)
+                )
+            )
+        
+        # Add product filter if selected
+        if self.selected_product:
+            filter_conditions.append(
+                FieldCondition(
+                    key="product_id",
+                    match=MatchValue(value=self.selected_product)
+                )
+            )
+        
+        if filter_conditions:
+            filter = Filter(must=filter_conditions)
         
         if filter:
             search_result = self.qdrant_client.search(
@@ -278,25 +334,19 @@ class AgenticRAG:
         import re
         
         # Pattern to match numbered lists (1. 2. 3. etc.)
-        # This will match patterns like "1. text 2. text 3. text"
         pattern = r'(\d+\.\s+[^1-9]*?)(?=\d+\.|$)'
         
         def replace_list(match):
-            # Get the matched text
             item = match.group(1).strip()
-            # Add line break after each item
             return item + '\n'
         
-        # Apply the formatting
         formatted_text = re.sub(pattern, replace_list, text)
         
-        # Also handle patterns like "1) text 2) text 3) text"
+        # Handle patterns like "1) text 2) text 3) text"
         pattern2 = r'(\d+\)\s+[^1-9]*?)(?=\d+\)|$)'
         formatted_text = re.sub(pattern2, replace_list, formatted_text)
         
-        # Clean up any extra line breaks at the end
         formatted_text = formatted_text.rstrip('\n')
-        
         return formatted_text
 
     def generate_agentic_response(self, user_input: str) -> str:
@@ -337,7 +387,10 @@ class AgenticRAG:
         self.save_context(user_input, formatted_response, {
             "knowledge_items_used": len(knowledge_items),
             "context_items_used": len(context_history),
-            "procedure_active": bool(procedure_context)
+            "procedure_active": bool(procedure_context),
+            "selected_category": self.selected_category,
+            "selected_brand": self.selected_brand,
+            "selected_product": self.selected_product
         })
         
         return formatted_response
@@ -364,27 +417,36 @@ class AgenticRAG:
     def _build_system_prompt(self, procedure_context: Optional[Dict]) -> str:
         """Build system prompt based on current context"""
         
-        # Add device context to the base prompt
-        device_context = ""
-        if self.device_type:
-            device_context = f"\n\nDEVICE CONTEXT:\n- Device Type: {self.device_type.capitalize()}"
-            if self.device_type == 'phone' and self.phone_type:
-                device_context += f"\n- Phone Type: {self.phone_type.capitalize()}"
-            elif self.device_type == 'tablet' and self.phone_type:
-                device_context += f"\n- Tablet Type: {self.phone_type.capitalize()}"
-            elif self.device_type == 'computer' and self.computer_type:
-                device_context += f"\n- Computer Type: {self.computer_type.capitalize()}"
-            elif self.device_type == 'computer' and not self.computer_type:
-                device_context += f"\n- Computer Type: Unknown"
+        # Build product context
+        product_context = ""
+        if self.selected_category or self.selected_brand or self.selected_product:
+            product_context = f"\n\nPRODUCT CONTEXT:"
+            if self.selected_category:
+                product_context += f"\n- Category: {self.selected_category}"
+            if self.selected_brand:
+                product_context += f"\n- Brand: {self.selected_brand}"
+            if self.selected_product:
+                # Find product details
+                if self.products_df is not None and not self.products_df.empty:
+                    product_row = self.products_df[self.products_df['Product_ID'] == self.selected_product]
+                    if not product_row.empty:
+                        product_name = product_row.iloc[0]['Product_Name']
+                        product_context += f"\n- Product: {product_name} (ID: {self.selected_product})"
         
-        base_prompt = f"""You are an intelligent diagnostic assistant with agentic capabilities. Your role is to:
+        # Available categories for context
+        categories_context = ""
+        if self.categories:
+            categories_list = ", ".join(self.categories.keys())
+            categories_context = f"\n\nAVAILABLE CATEGORIES: {categories_list}"
+        
+        base_prompt = f"""You are an intelligent diagnostic assistant with agentic capabilities for various consumer products. Your role is to:
 
 1. Maintain context across conversations
 2. Guide users through systematic diagnostic procedures
 3. Ask relevant follow-up questions
 4. Provide step-by-step troubleshooting guidance
 5. Remember what has been tried and what worked/didn't work
-6. Remember the user's device type and phone type (if applicable)
+6. Adapt to different product categories, brands, and specific products
 
 Key behaviors:
 - Be conversational and helpful
@@ -392,10 +454,12 @@ Key behaviors:
 - Suggest next steps based on diagnostic procedures
 - Keep track of what's been tried
 - Celebrate successes and learn from failures
-- Never ask about device type or phone type again once it's been provided"""
+- Adapt your expertise to the specific product category and brand
+- Never ask about product category, brand, or specific product again once it's been provided"""
 
-        # Add device context
-        base_prompt += device_context
+        # Add product context
+        base_prompt += product_context
+        base_prompt += categories_context
 
         if procedure_context:
             base_prompt += f"""
@@ -447,3 +511,7 @@ ACTIVE DIAGNOSTIC CONTEXT:
         print(f"  Context entries: {context_count}")
         print(f"  Current session: {self.current_session_id}")
         print(f"  Conversation turns: {len(self.conversation_history)}")
+        print(f"  Categories loaded: {len(self.categories)}")
+        print(f"  Selected category: {self.selected_category}")
+        print(f"  Selected brand: {self.selected_brand}")
+        print(f"  Selected product: {self.selected_product}")
