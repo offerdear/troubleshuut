@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Product Store</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .line-clamp-2 {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <!-- Navigation -->
+        <nav class="mb-8">
+            <div class="flex items-center justify-center">
+                <h1 class="text-3xl font-bold text-gray-800 text-center">
+                    <img src="/static/techtonik.png" alt="Product Store Logo" class="w-65 h-40 block mx-auto" />
+                </h1>
+                <button id="back-btn" class="hidden text-gray-600 px-4 py-2 rounded-lg hover:shadow-lg transition-colors">
+                    ← Back to Store
+                </button>
+            </div>
+        </nav>
+
+        <!-- Storefront View -->
+        <div id="storefront-view">
+            <!-- Search and Filters -->
+            <div class="bg-white rounded-lg shadow-md p-6 mb-8">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Search Products</label>
+                        <input type="text" id="search-input" placeholder="Search by name or brand..." 
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Brand</label>
+                        <select id="brand-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">All Brands</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Category</label>
+                        <select id="category-filter" class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">All Categories</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Count -->
+            <div class="mb-4">
+                <p id="product-count" class="text-gray-600"></p>
+            </div>
+
+            <!-- Loading State -->
+            <div id="loading" class="text-center py-12">
+                <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+                <p class="text-gray-600 mt-4">Loading products...</p>
+            </div>
+
+            <!-- No Results -->
+            <div id="no-results" class="hidden text-center py-12">
+                <div class="text-gray-400 text-6xl mb-4">🔍</div>
+                <h3 class="text-xl font-semibold text-gray-700 mb-2">No products found</h3>
+                <p class="text-gray-500">Try adjusting your search or filter criteria</p>
+            </div>
+
+            <!-- Products Grid -->
+            <div id="products-grid" class="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                <!-- Products will be dynamically inserted here -->
+            </div>
+        </div>
+
+        <!-- Product Detail View -->
+        <div id="product-view" class="hidden">
+            <div id="product-detail" class="bg-white rounded-lg shadow-md overflow-hidden">
+                <!-- Product details will be dynamically inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let allProducts = [];
+        let filteredProducts = [];
+        let brands = new Set();
+        let categories = new Set();
+        let currentProduct = null;
+
+        // DOM elements
+        const searchInput = document.getElementById('search-input');
+        const brandFilter = document.getElementById('brand-filter');
+        const categoryFilter = document.getElementById('category-filter');
+        const productsGrid = document.getElementById('products-grid');
+        const loading = document.getElementById('loading');
+        const noResults = document.getElementById('no-results');
+        const productCount = document.getElementById('product-count');
+        const storefrontView = document.getElementById('storefront-view');
+        const productView = document.getElementById('product-view');
+        const productDetail = document.getElementById('product-detail');
+        const backBtn = document.getElementById('back-btn');
+
+        // Load and parse CSV data
+        async function loadProducts() {
+            try {
+                const response = await fetch('/products.csv');
+                const csvText = await response.text();
+                
+                // Parse the CSV data
+                const products = parseCSV(csvText);
+                
+                allProducts = products;
+                filteredProducts = [...allProducts];
+                
+                // Extract unique brands and categories
+                products.forEach(product => {
+                    if (product.Brand) brands.add(product.Brand);
+                    if (product.Category) categories.add(product.Category);
+                });
+                
+                // Populate filter dropdowns
+                populateFilters();
+                
+                // Display products
+                displayProducts();
+                
+                // Hide loading, show grid
+                loading.style.display = 'none';
+                productsGrid.style.display = 'grid';
+                
+                updateProductCount();
+                
+                // Check if we should show a specific product from URL
+                checkForProductInURL();
+                
+            } catch (error) {
+                console.error('Error loading products:', error);
+                loading.innerHTML = '<div class="text-red-600">Error loading products. Please try again.</div>';
+            }
+        }
+
+        // Parse CSV data
+        function parseCSV(csvText) {
+            const lines = csvText.split('\n');
+            const headers = lines[0].split(',').map(h => h.trim());
+            
+            const products = [];
+            for (let i = 1; i < lines.length; i++) {
+                if (lines[i].trim() === '') continue;
+                
+                const values = lines[i].split(',').map(v => v.trim());
+                const product = {};
+                
+                headers.forEach((header, index) => {
+                    product[header] = values[index] || '';
+                });
+                
+                // Generate a unique ID for each product
+                product.id = generateProductId(product.Product_Name.replace(/"/g, ''), product.Brand);
+                
+                products.push(product);
+            }
+            
+            return products;
+        }
+
+        // Generate product ID from name and brand
+        function generateProductId(name, brand) {
+            return (name + '-' + brand).toLowerCase()
+                .replace(/[^a-z0-9]/g, '-')
+                .replace(/-+/g, '-')
+                .replace(/^-|-$/g, '');
+        }
+
+        // Populate filter dropdowns
+        function populateFilters() {
+            const sortedBrands = Array.from(brands).sort();
+            sortedBrands.forEach(brand => {
+                const option = document.createElement('option');
+                option.value = brand;
+                option.textContent = brand;
+                brandFilter.appendChild(option);
+            });
+
+            const sortedCategories = Array.from(categories).sort();
+            sortedCategories.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                categoryFilter.appendChild(option);
+            });
+        }
+
+        // Display products
+        function displayProducts() {
+            productsGrid.innerHTML = '';
+            
+            if (filteredProducts.length === 0) {
+                productsGrid.style.display = 'none';
+                noResults.style.display = 'block';
+                return;
+            }
+            
+            noResults.style.display = 'none';
+            productsGrid.style.display = 'grid';
+            
+            filteredProducts.forEach(product => {
+                const productCard = createProductCard(product);
+                productsGrid.appendChild(productCard);
+            });
+        }
+
+        // Create product card
+        function createProductCard(product) {
+            const card = document.createElement('div');
+            card.className = 'product-card bg-white rounded-lg shadow-md p-6 border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer';
+            
+            card.innerHTML = `
+                <div class="text-center">
+                    <div class="w-16 h-16 bg-gray-200 rounded-full mx-auto mb-4 flex items-center justify-center">
+                        <img src="{{ url_for('static', filename='airpods-pro-2.jpg') }}" alt="${product.Short_Description}">
+                    </div>
+                    <h3 class="text-lg font-semibold text-gray-800 mb-2 line-clamp-2">${product.Product_Name.replace(/"/g, '') || 'Unknown Product'}</h3>
+                    <p class="text-blue-600 font-medium">${product.Brand || 'Unknown Brand'}</p>
+                    <div class="mt-3 pt-3 border-t border-gray-100">
+                        <span class="inline-block bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full">${product.Category || 'Uncategorized'}</span>
+                        ${product.Price ? `<p class="text-green-600 font-bold mt-2">${product.Price}</p>` : ''}
+                    </div>
+                </div>
+            `;
+            
+            // Add click event to show product details
+            card.addEventListener('click', () => showProduct(product.id));
+            
+            return card;
+        }
+
+        // Show individual product page
+        function showProduct(productId) {
+            const product = allProducts.find(p => p.id === productId);
+            if (!product) return;
+            
+            currentProduct = product;
+            
+            // Update URL without page reload
+            const newUrl = `${window.location.pathname}?product=${productId}`;
+            window.history.pushState({ productId }, '', newUrl);
+            
+            // Create product detail view
+            productDetail.innerHTML = createProductDetailHTML(product);
+            
+            // Switch views
+            storefrontView.style.display = 'none';
+            productView.style.display = 'block';
+            backBtn.style.display = 'block';
+            
+            // Update page title
+            document.title = `${product.Product_Name.replace(/"/g, '')} - Product Store`;
+        }
+
+        // Create product detail HTML
+        function createProductDetailHTML(product) {
+            return `
+                <div class="md:flex">
+                    <div class="md:w-1/2 p-8">
+                        <div class="w-64 h-64 bg-gray-200 rounded-lg mx-auto flex items-center justify-center mb-6">
+                            <img src="${product.Image_URL}" alt="${product.Short_Description}" class="w-full h-full object-cover rounded-lg">
+                        </div>
+                    </div>
+                    <div class="md:w-1/2 p-8">
+                        <h1 class="text-3xl font-semibold text-gray-800 mb-4">${product.Product_Name.replace(/"/g, '')}</h1>
+                        <p class="text-xl text-stone-600 font-semibold mb-4">${product.Brand}</p>
+                        <br><br>
+                        ${product.Price ? `<p class="text-xl text-zinc-600 mb-6">${product.Price}</p>` : ''}
+                        
+                        ${product.Description ? `
+                            <div class="mb-8">
+                                <h3 class="text-lg font-semibold text-gray-800 mb-2">Description</h3>
+                                <p class="text-gray-600 leading-relaxed">${product.Description}</p>
+                            </div>
+                        ` : ''}
+                        
+                        <div class="space-y-3">
+                            <button class="w-full bg-cyan-800 text-white py-3 px-6 rounded-lg hover:bg-cyan-500 transition-colors font-semibold">
+                                Add to Cart
+                            </button>
+                            <button class="w-full border border-gray-300 text-gray-700 py-3 px-6 rounded-lg hover:bg-gray-50 transition-colors">
+                                Save for Later
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+        }
+
+        // Go back to storefront
+        function goBackToStorefront() {
+            storefrontView.style.display = 'block';
+            productView.style.display = 'none';
+            backBtn.style.display = 'none';
+            currentProduct = null;
+            
+            // Update URL and title
+            window.history.pushState({}, '', window.location.pathname);
+            document.title = 'Product Store';
+        }
+
+        // Check URL for product parameter
+        function checkForProductInURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const productId = urlParams.get('product');
+            if (productId) {
+                showProduct(productId);
+            }
+        }
+
+        // Handle browser back/forward buttons
+        window.addEventListener('popstate', (event) => {
+            if (event.state && event.state.productId) {
+                showProduct(event.state.productId);
+            } else {
+                goBackToStorefront();
+            }
+        });
+
+        // Filter products
+        function filterProducts() {
+            const searchTerm = searchInput.value.toLowerCase();
+            const selectedBrand = brandFilter.value;
+            const selectedCategory = categoryFilter.value;
+            
+            filteredProducts = allProducts.filter(product => {
+                const matchesSearch = !searchTerm || 
+                    (product.Product_Name && product.Product_Name.toLowerCase().includes(searchTerm)) ||
+                    (product.Brand && product.Brand.toLowerCase().includes(searchTerm));
+                
+                const matchesBrand = !selectedBrand || product.Brand === selectedBrand;
+                const matchesCategory = !selectedCategory || product.Category === selectedCategory;
+                
+                return matchesSearch && matchesBrand && matchesCategory;
+            });
+            
+            displayProducts();
+            updateProductCount();
+        }
+
+        // Update product count
+        function updateProductCount() {
+            const total = allProducts.length;
+            const showing = filteredProducts.length;
+            
+            if (showing === total) {
+                productCount.textContent = `Showing all ${total} products`;
+            } else {
+                productCount.textContent = `Showing ${showing} of ${total} products`;
+            }
+        }
+
+        // Event listeners
+        searchInput.addEventListener('input', filterProducts);
+        brandFilter.addEventListener('change', filterProducts);
+        categoryFilter.addEventListener('change', filterProducts);
+        backBtn.addEventListener('click', goBackToStorefront);
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', loadProducts);
+    </script>
+</body>
+</html>
