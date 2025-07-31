@@ -1,0 +1,8 @@
+flask
+pandas
+qdrant_client
+openai
+dotenv
+langchain_community
+langchain_openai
+PyMuPDF

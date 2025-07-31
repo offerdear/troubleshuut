@@ -1,0 +1,54 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python virtual environment
+venv/
+
+# Environment variables
+.env
+
+# macOS system files
+.DS_Store
+
+# Uploads and user-generated content
+uploads/
+user_manuals/
+
+# Node modules
+node_modules/
+package-lock.json
+
+# Flask cache / session files
+instance/
+*.log
+
+# VS Code settings
+.vscode/
+
+# Compiled files or temporary builds
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# IPython
+.ipynb_checkpoints/
+
+# Coverage and testing
+htmlcov/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.pytest_cache/
+test-results/
+test-output/
+
+# Temporary files
+*.tmp
+*.bak
+*.swp

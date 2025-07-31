@@ -22,6 +22,7 @@
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
+    {% include "navbar.html" %}
     <div class="container mx-auto px-4 py-8">
         <!-- Navigation -->
         <nav class="mb-8">
@@ -42,7 +43,7 @@
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-2">Search Products</label>
-                        <input type="text" id="search-input" placeholder="Search by name or brand..." 
+                        <input type="text" id="search-input" placeholder="Search by name or brand..."
                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
                     </div>
                     <div>
@@ -118,34 +119,34 @@
             try {
                 const response = await fetch('/products.csv');
                 const csvText = await response.text();
-                
+
                 // Parse the CSV data
                 const products = parseCSV(csvText);
-                
+
                 allProducts = products;
                 filteredProducts = [...allProducts];
-                
+
                 // Extract unique brands and categories
                 products.forEach(product => {
                     if (product.Brand) brands.add(product.Brand);
                     if (product.Category) categories.add(product.Category);
                 });
-                
+
                 // Populate filter dropdowns
                 populateFilters();
-                
+
                 // Display products
                 displayProducts();
-                
+
                 // Hide loading, show grid
                 loading.style.display = 'none';
                 productsGrid.style.display = 'grid';
-                
+
                 updateProductCount();
-                
+
                 // Check if we should show a specific product from URL
                 checkForProductInURL();
-                
+
             } catch (error) {
                 console.error('Error loading products:', error);
                 loading.innerHTML = '<div class="text-red-600">Error loading products. Please try again.</div>';
@@ -156,24 +157,24 @@
         function parseCSV(csvText) {
             const lines = csvText.split('\n');
             const headers = lines[0].split(',').map(h => h.trim());
-            
+
             const products = [];
             for (let i = 1; i < lines.length; i++) {
                 if (lines[i].trim() === '') continue;
-                
+
                 const values = lines[i].split(',').map(v => v.trim());
                 const product = {};
-                
+
                 headers.forEach((header, index) => {
                     product[header] = values[index] || '';
                 });
-                
+
                 // Generate a unique ID for each product
                 product.id = generateProductId(product.Product_Name.replace(/"/g, ''), product.Brand);
-                
+
                 products.push(product);
             }
-            
+
             return products;
         }
 
@@ -207,16 +208,16 @@
         // Display products
         function displayProducts() {
             productsGrid.innerHTML = '';
-            
+
             if (filteredProducts.length === 0) {
                 productsGrid.style.display = 'none';
                 noResults.style.display = 'block';
                 return;
             }
-            
+
             noResults.style.display = 'none';
             productsGrid.style.display = 'grid';
-            
+
             filteredProducts.forEach(product => {
                 const productCard = createProductCard(product);
                 productsGrid.appendChild(productCard);
@@ -227,7 +228,7 @@
         function createProductCard(product) {
             const card = document.createElement('div');
             card.className = 'product-card bg-white rounded-lg shadow-md p-6 border border-gray-200 hover:shadow-lg transition-shadow cursor-pointer';
-            
+
             card.innerHTML = `
                 <div class="text-center">
                     <div class="w-60 h-40 bg-gray-200 mx-auto mb-4 flex items-center justify-center">
@@ -241,10 +242,10 @@
                     </div>
                 </div>
             `;
-            
+
             // Add click event to show product details
             card.addEventListener('click', () => showProduct(product.id));
-            
+
             return card;
         }
 
@@ -252,21 +253,21 @@
         function showProduct(productId) {
             const product = allProducts.find(p => p.id === productId);
             if (!product) return;
-            
+
             currentProduct = product;
-            
+
             // Update URL without page reload
             const newUrl = `${window.location.pathname}?product=${productId}`;
             window.history.pushState({ productId }, '', newUrl);
-            
+
             // Create product detail view
             productDetail.innerHTML = createProductDetailHTML(product);
-            
+
             // Switch views
             storefrontView.style.display = 'none';
             productView.style.display = 'block';
             backBtn.style.display = 'block';
-            
+
             // Update page title
             document.title = `${product.Product_Name.replace(/"/g, '')} - Product Store`;
         }
@@ -285,14 +286,14 @@
                         <p class="text-xl text-stone-600 font-semibold mb-4">${product.Brand}</p>
                         <br><br>
                         ${product.Price ? `<p class="text-xl text-zinc-600 mb-6">${product.Price}</p>` : ''}
-                        
+
                         ${product.Description ? `
                             <div class="mb-8">
                                 <h3 class="text-lg font-semibold text-gray-800 mb-2">Description</h3>
                                 <p class="text-gray-600 leading-relaxed">${product.Description}</p>
                             </div>
                         ` : ''}
-                        
+
                         <div class="space-y-3">
                             <button class="w-full bg-cyan-800 text-white py-3 px-6 rounded-lg hover:bg-cyan-500 transition-colors font-semibold">
                                 Add to Cart
@@ -313,7 +314,7 @@
             productView.style.display = 'none';
             backBtn.style.display = 'none';
             currentProduct = null;
-            
+
             // Update URL and title
             window.history.pushState({}, '', window.location.pathname);
             document.title = 'Product Store';
@@ -342,18 +343,18 @@
             const searchTerm = searchInput.value.toLowerCase();
             const selectedBrand = brandFilter.value;
             const selectedCategory = categoryFilter.value;
-            
+
             filteredProducts = allProducts.filter(product => {
-                const matchesSearch = !searchTerm || 
+                const matchesSearch = !searchTerm ||
                     (product.Product_Name && product.Product_Name.toLowerCase().includes(searchTerm)) ||
                     (product.Brand && product.Brand.toLowerCase().includes(searchTerm));
-                
+
                 const matchesBrand = !selectedBrand || product.Brand === selectedBrand;
                 const matchesCategory = !selectedCategory || product.Category === selectedCategory;
-                
+
                 return matchesSearch && matchesBrand && matchesCategory;
             });
-            
+
             displayProducts();
             updateProductCount();
         }
@@ -362,7 +363,7 @@
         function updateProductCount() {
             const total = allProducts.length;
             const showing = filteredProducts.length;
-            
+
             if (showing === total) {
                 productCount.textContent = `Showing all ${total} products`;
             } else {

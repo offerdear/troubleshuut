@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Upload Product Manual</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100 min-h-screen">
+  <!-- ✅ Navigation Bar -->
+  {% include "navbar.html" %}
+
+  <!-- ✅ Upload Form -->
+  <div class="flex justify-center items-center pt-10">
+    <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+      <h2 class="text-2xl font-semibold text-center text-gray-800 mb-6">Upload Product Manual</h2>
+
+      <form method="POST" action="/upload" enctype="multipart/form-data" class="space-y-4">
+        <input type="file" name="file" accept=".pdf,.docx,.txt" required class="w-full p-2 border rounded-lg"/>
+
+        <select name="category" id="category-select" class="w-full p-2 border rounded-lg" required>
+          <option value="">Select Category</option>
+        </select>
+
+        <select name="brand" id="brand-select" class="w-full p-2 border rounded-lg" required disabled>
+          <option value="">Select Brand</option>
+        </select>
+
+        <select name="product_id" id="product-select" class="w-full p-2 border rounded-lg" required disabled>
+          <option value="">Select Product</option>
+        </select>
+
+        <button type="submit" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-2 rounded-lg transition-colors">
+          Upload
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ✅ Dynamic Dropdown Logic -->
+  <script>
+    let categories = [];
+
+    async function fetchCategories() {
+      try {
+        const res = await fetch('/api/categories');
+        const data = await res.json();
+        categories = data.categories || [];
+
+        const categorySelect = document.getElementById('category-select');
+        categorySelect.innerHTML = `<option value="">Select Category</option>`;
+        categories.forEach(cat => {
+          const option = document.createElement('option');
+          option.value = cat;
+          option.textContent = cat;
+          categorySelect.appendChild(option);
+        });
+      } catch (err) {
+        console.error("Failed to fetch categories:", err);
+      }
+    }
+
+    async function fetchBrands(category) {
+      const res = await fetch(`/api/brands/${encodeURIComponent(category)}`);
+      const data = await res.json();
+      return data.brands || [];
+    }
+
+    async function fetchProducts(category, brand) {
+      const res = await fetch(`/api/products/${encodeURIComponent(category)}?brand=${encodeURIComponent(brand)}`);
+      const data = await res.json();
+      return data.products || [];
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const categorySelect = document.getElementById('category-select');
+      const brandSelect = document.getElementById('brand-select');
+      const productSelect = document.getElementById('product-select');
+
+      fetchCategories();
+
+      categorySelect.addEventListener('change', async () => {
+        const category = categorySelect.value;
+        brandSelect.innerHTML = '<option value="">Select Brand</option>';
+        productSelect.innerHTML = '<option value="">Select Product</option>';
+        brandSelect.disabled = productSelect.disabled = true;
+
+        if (category) {
+          const brands = await fetchBrands(category);
+          brandSelect.disabled = false;
+          brands.forEach(brand => {
+            const option = document.createElement('option');
+            option.value = brand;
+            option.textContent = brand;
+            brandSelect.appendChild(option);
+          });
+        }
+      });
+
+      brandSelect.addEventListener('change', async () => {
+        const category = categorySelect.value;
+        const brand = brandSelect.value;
+        productSelect.innerHTML = '<option value="">Select Product</option>';
+        productSelect.disabled = true;
+
+        if (brand) {
+          const products = await fetchProducts(category, brand);
+          productSelect.disabled = false;
+          products.forEach(p => {
+            const option = document.createElement('option');
+            option.value = p.product_id;
+            option.textContent = `${p.name} (${p.brand})`;
+            productSelect.appendChild(option);
+          });
+        }
+      });
+    });
+  </script>
+
+  <!-- ✅ Success Alert -->
+  <script>
+    window.onload = function () {
+      const uploadSuccess = "{{ success | default(false) }}";
+      if (uploadSuccess === "True") {
+        alert("Upload success!");
+      }
+    };
+  </script>
+</body>
+</html>

@@ -15,7 +15,7 @@
         .dot:nth-child(1) { animation-delay: 0s; }
         .dot:nth-child(2) { animation-delay: 0.2s; }
         .dot:nth-child(3) { animation-delay: 0.4s; }
-        
+
         @keyframes dot {
             0%, 80%, 100% { opacity: 0; }
             40% { opacity: 1; }
@@ -24,7 +24,7 @@
         .category-button {
             transition: all 0.3s ease;
         }
-        
+
         .category-button:hover {
             transform: translateY(-2px);
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
@@ -32,12 +32,13 @@
     </style>
 </head>
 <body class="bg-gray-100 p-4">
+    {% include "navbar.html" %}
     <div class="max-w-2xl mx-auto">
         <h1 class="text-3xl font-bold mb-4 text-center text-gray-800">Product Support Assistant</h1>
         <div class="bg-white rounded-lg shadow-lg p-4">
             <div id="chat-messages" class="h-96 overflow-y-auto mb-4 p-2 space-y-2">
                 <div class="bg-gray-100 mr-8 p-3 rounded-lg">
-                    <strong class="text-blue-600">Assistant:</strong> 
+                    <strong class="text-blue-600">Assistant:</strong>
                     <p class="mt-1">Welcome! I'm here to help you with your products. Please choose the category you need assistance with:</p>
                     <div id="initial-categories" class="mt-3 space-y-2">
                         <div class="text-center text-gray-500 py-4">
@@ -47,7 +48,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="flex space-x-2 mb-4">
                 <select id="category-select" class="border border-gray-300 rounded-lg p-2 flex-1">
                     <option value="">Select Category</option>
@@ -59,12 +60,12 @@
                     <option value="">Select Product</option>
                 </select>
             </div>
-            
+
             <div class="flex space-x-2">
-                <input type="text" id="user-input" 
-                       class="flex-1 border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent" 
+                <input type="text" id="user-input"
+                       class="flex-1 border border-gray-300 rounded-lg p-2 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                        placeholder="Type your message...">
-                <button onclick="sendMessage()" 
+                <button onclick="sendMessage()"
                         class="bg-blue-500 hover:bg-blue-600 text-white px-6 rounded-lg transition-colors">
                     Send
                 </button>
@@ -78,7 +79,7 @@
         let selectedCategory = '';
         let selectedBrand = '';
         let selectedProduct = '';
-        
+
         // DOM elements
         const categorySelect = document.getElementById('category-select');
         const brandSelect = document.getElementById('brand-select');
@@ -102,7 +103,7 @@
                 const response = await fetch('/api/categories');
                 const data = await response.json();
                 categories = data.categories || [];
-                
+
                 // Update category dropdown
                 categorySelect.innerHTML = '<option value="">Select Category</option>';
                 categories.forEach(category => {
@@ -114,7 +115,7 @@
 
                 // Update initial category buttons
                 displayInitialCategories();
-                
+
             } catch (error) {
                 console.error('Error loading categories:', error);
                 throw error;
@@ -124,25 +125,25 @@
         // Display initial category selection buttons
         function displayInitialCategories() {
             const initialCategoriesDiv = document.getElementById('initial-categories');
-            
+
             if (categories.length === 0) {
                 initialCategoriesDiv.innerHTML = '<p class="text-red-500 text-center">No categories available</p>';
                 return;
             }
 
             const colors = ['blue', 'green', 'purple', 'indigo', 'pink', 'yellow', 'red', 'gray'];
-            
+
             initialCategoriesDiv.innerHTML = `
                 <div class="grid grid-cols-3 gap-2"> <!-- Still using a grid container for 3 columns with a gap -->
                     ${categories.map((category, index) => {
                         const color = colors[index % colors.length];
                         return `
-                            <button onclick="selectCategory('${category}')" 
-                                    class="category-button 
+                            <button onclick="selectCategory('${category}')"
+                                    class="category-button
                                            py-2 px-4 <!-- Added padding to control button size based on text -->
                                            rounded-md <!-- Changed to rounded-md for rounded rectangles -->
-                                           text-sm font-medium text-${color}-800 
-                                           bg-${color}-100 hover:bg-${color}-200 
+                                           text-sm font-medium text-${color}-800
+                                           bg-${color}-100 hover:bg-${color}-200
                                            border border-${color}-200">
                                 ${category}
                             </button>
@@ -159,7 +160,7 @@
                 selectedCategory = categorySelect.value;
                 selectedBrand = '';
                 selectedProduct = '';
-                
+
                 if (selectedCategory) {
                     await loadBrands(selectedCategory);
                     brandSelect.disabled = false;
@@ -177,7 +178,7 @@
             brandSelect.addEventListener('change', async () => {
                 selectedBrand = brandSelect.value;
                 selectedProduct = '';
-                
+
                 if (selectedBrand && selectedCategory) {
                     await loadProducts(selectedCategory, selectedBrand);
                     productSelect.disabled = false;
@@ -204,7 +205,7 @@
                 const response = await fetch(`/api/brands/${encodeURIComponent(category)}`);
                 const data = await response.json();
                 const brands = data.brands || [];
-                
+
                 brandSelect.innerHTML = '<option value="">Select Brand (Optional)</option>';
                 brands.forEach(brand => {
                     const option = document.createElement('option');
@@ -212,7 +213,7 @@
                     option.textContent = brand;
                     brandSelect.appendChild(option);
                 });
-                
+
             } catch (error) {
                 console.error('Error loading brands:', error);
                 brandSelect.innerHTML = '<option value="">Error loading brands</option>';
@@ -226,19 +227,19 @@
                 if (brand) {
                     url += `?brand=${encodeURIComponent(brand)}`;
                 }
-                
+
                 const response = await fetch(url);
                 const data = await response.json();
                 const products = data.products || [];
-                
+
                 productSelect.innerHTML = '<option value="">Select Specific Product (Optional)</option>';
                 products.forEach(product => {
                     const option = document.createElement('option');
-                    option.value = product.product_id;
+                    option.value = product.name;
                     option.textContent = `${product.name} (${product.brand})`;
                     productSelect.appendChild(option);
                 });
-                
+
             } catch (error) {
                 console.error('Error loading products:', error);
                 productSelect.innerHTML = '<option value="">Error loading products</option>';
@@ -250,30 +251,30 @@
             // Update dropdowns
             categorySelect.value = category;
             selectedCategory = category;
-            
+
             // Add user message
             addMessage('You', `I need help with: ${category}`);
-            
+
             // Load brands and enable brand selection
             await loadBrands(category);
             brandSelect.disabled = false;
-            
+
             // Show brand selection message
             const brands = Array.from(brandSelect.options).slice(1).map(option => option.text);
             let brandButtons = '';
-            
+
             if (brands.length > 0) {
                 const colors = ['blue', 'green', 'purple', 'indigo', 'pink'];
                 brandButtons = brands.map((brand, index) => {
                     const color = colors[index % colors.length];
-                    return `<button onclick="selectBrand('${category}', '${brand}')" 
+                    return `<button onclick="selectBrand('${category}', '${brand}')"
                                    class="bg-${color}-100 hover:bg-${color}-200 px-3 py-2 rounded-lg text-sm mr-2 mb-2 text-${color}-800 border border-${color}-200 transition-colors">
                                ${brand}
                            </button>`;
                 }).join('');
-                
-                addMessage('Assistant', 
-                    `Great! I can help you with ${category} products. Please select your brand, or you can skip this step and ask your question directly:`, 
+
+                addMessage('Assistant',
+                    `Great! I can help you with ${category} products. Please select your brand, or you can skip this step and ask your question directly:`,
                     `<div class="mt-3 flex flex-wrap">${brandButtons}</div>`);
             } else {
                 addMessage('Assistant', `I'm ready to help you with ${category} products. What specific issue are you experiencing?`);
@@ -284,13 +285,13 @@
         async function selectBrand(category, brand) {
             brandSelect.value = brand;
             selectedBrand = brand;
-            
+
             addMessage('You', `Brand: ${brand}`);
-            
+
             // Load products for this brand
             await loadProducts(category, brand);
             productSelect.disabled = false;
-            
+
             addMessage('Assistant', `Perfect! I'm now focused on ${brand} ${category} products. You can optionally select a specific product from the dropdown, or just tell me what issue you're experiencing.`);
         }
 
@@ -324,17 +325,17 @@
                         product_id: selectedProduct || null
                     })
                 });
-                
+
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
                 }
-                
+
                 const data = await response.json();
-                
+
                 // Remove loading message and add actual response
                 removeLoadingMessage(loadingId);
                 addMessage('Assistant', data.response);
-                
+
             } catch (error) {
                 console.error('Error:', error);
                 removeLoadingMessage(loadingId);
@@ -350,7 +351,7 @@
             messageDiv.id = loadingId;
             messageDiv.className = 'p-3 rounded-lg bg-gray-100 mr-8';
             messageDiv.innerHTML = `
-                <strong class="text-blue-600">Assistant:</strong> 
+                <strong class="text-blue-600">Assistant:</strong>
                 <span class="ml-2">Thinking</span>
                 <span class="loading-dots ml-1">
                     <span class="dot">.</span><span class="dot">.</span><span class="dot">.</span>
@@ -373,10 +374,10 @@
         function addMessage(sender, message, extraContent = '', extraClass = '') {
             const chat = document.getElementById('chat-messages');
             const messageDiv = document.createElement('div');
-            
+
             let senderClass = '';
             let senderColor = '';
-            
+
             if (sender === 'You') {
                 senderClass = 'bg-blue-100 ml-8 border-l-4 border-blue-500';
                 senderColor = 'text-blue-700';
@@ -387,17 +388,17 @@
                 senderClass = 'bg-red-100 border-l-4 border-red-500';
                 senderColor = 'text-red-600';
             }
-            
+
             messageDiv.className = `p-3 rounded-lg ${senderClass} ${extraClass}`;
-            
+
             // Convert line breaks to HTML line breaks for better formatting
             const formattedMessage = message.replace(/\n/g, '<br>');
-            
+
             let content = `<strong class="${senderColor}">${sender}:</strong> <span class="mt-1 inline-block">${formattedMessage}</span>`;
             if (extraContent) {
                 content += `<div class="mt-3">${extraContent}</div>`;
             }
-            
+
             messageDiv.innerHTML = content;
             chat.appendChild(messageDiv);
             chat.scrollTop = chat.scrollHeight;
@@ -411,10 +412,12 @@
             if (selectedProduct) {
                 const productName = productSelect.options[productSelect.selectedIndex]?.text;
                 if (productName && productName !== 'Select Specific Product (Optional)') {
-                    selections.push(`Product: ${productName}`);
+                    // selections.push(`Product: ${productName}`);
+                    selections.push(`Product: ${selectedProduct}`);
+
                 }
             }
-            
+
             // You could add a status display here if needed
         }
 
